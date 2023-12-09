@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import sys
@@ -67,6 +68,7 @@ def main():
     st = time.time()
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")
+    # device = torch.device("mps")
     torch.backends.cudnn.benchmark = True
 
     args, unknown = read_args()
@@ -98,6 +100,26 @@ def main():
         dataset_config_name=args.dataset_config_name,
         split="train")
     train_sampler = active_sum.DataSampler(train_dataset, split="train")
+    
+    if not args.resume:
+        validation_dataset = init_dataset(
+            data_path=args.validation_file,
+            dataset_name=args.dataset_name,
+            dataset_config_name=args.dataset_config_name,
+            split="validation")
+        validation_sampler = active_sum.DataSampler(validation_dataset, split="validation")
+        validation_samples, validation_samples_idx = validation_sampler.sample_data(args.max_val_samples)
+        validation_sampler.remove_samples(validation_samples_idx)
+        outf = open(os.path.join(args.output_path+"/data", "validation.json"), "a+")
+        for di, (data_s, data_idx, si) in enumerate(zip(validation_samples, validation_samples_idx, validation_samples_idx)):
+            validation_sample_json = {
+                "document": data_s[args.text_column].replace('\n', ' '),
+                "summary": data_s[args.summary_column].replace('\n', ' '),
+                "id": data_idx
+            }
+            json.dump(validation_sample_json, outf)
+            outf.write("\n")
+        outf.close()
 
     logger.info(f"{args.acquisition} L: {args.L} K: {args.K} S: {args.S} steps: {args.steps}")
 
@@ -145,6 +167,7 @@ def main():
     if args.resume:
         active_learner.resume_learner(data_path)
     else:
+        logger.info("#FIND: initializing bayesian learning")
         active_learner.init_learner(
             init_labeled=args.L,
             model_path=train_model,
@@ -153,6 +176,7 @@ def main():
             epochs=args.epochs)
 
     if args.acquisition == "bayesian":
+        logger.info("#FIND: running bayesian learning")
         active_learner.learn(
             steps=args.steps,
             model_path=train_model,

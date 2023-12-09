@@ -88,7 +88,7 @@ def init_dataset(data_path=None, dataset_name=None, dataset_config_name=None, sp
     datasets = {}
     if split == "train":
         datasets = load_datasets(dataset_name, dataset_config_name, train_file=data_path)
-    elif split == "val":
+    elif split == "validation":
         datasets = load_datasets(dataset_name, dataset_config_name, validation_file=data_path)
     elif split == "test":
         datasets = load_datasets(dataset_name, dataset_config_name, test_file=data_path)

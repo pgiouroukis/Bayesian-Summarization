@@ -87,10 +87,11 @@ class ActiveSum:
             pad_to_max_length=True,
             num_beams=self.beams,
             num_train_epochs=epochs,
-            save_steps=self.save_step,
-            save_total_limit=self.save_limit,
-            load_best_model_at_end=True,
+            save_total_limit=self.save_limit,   # https://huggingface.co/docs/transformers/v4.35.2/en/main_classes/trainer#transformers.TrainingArguments.save_total_limit
+            load_best_model_at_end=True,        # https://huggingface.co/docs/transformers/v4.35.2/en/main_classes/trainer#transformers.TrainingArguments.load_best_model_at_end
             evaluation_strategy="epoch",
+            save_strategy="epoch",              # Because of this, `save_steps` will not be used
+            save_steps=self.save_step,
             metric_for_best_model=self.metric,
             greater_is_better=True,
             do_train=True,
@@ -100,7 +101,9 @@ class ActiveSum:
         )
 
         sum_trainer.init_sum()
+        logger.info("#FIND: Starting training and validation")
         train_metrics = sum_trainer.train()
+        logger.info("#FIND: Starting evaluation")
         eval_metrics = sum_trainer.evaluate()
         del sum_trainer
         gc.collect()
@@ -123,15 +126,15 @@ class ActiveSum:
         write_metrics(model_path, train_metrics, filename="train_metrics_hist")
         write_metrics(model_path, eval_metrics, filename="eval_metrics_hist")
 
-        if eval_metrics[f"eval_{self.metric}"] > self.best_score:
-            best_checkpoint_path = os.path.join(model_path, "best_checkpoint")
-            if not os.path.exists(best_checkpoint_path):
-                os.mkdir(best_checkpoint_path)
+        # if eval_metrics[f"eval_{self.metric}"] > self.best_score:
+        #     best_checkpoint_path = os.path.join(model_path, "best_checkpoint")
+        #     if not os.path.exists(best_checkpoint_path):
+        #         os.mkdir(best_checkpoint_path)
 
-            shutil.copy(os.path.join(model_path, "pytorch_model.bin"), best_checkpoint_path)
-            self.best_score = eval_metrics[f"eval_{self.metric}"]
+        #     shutil.copy(os.path.join(model_path, "pytorch_model.bin"), best_checkpoint_path)
+        #     self.best_score = eval_metrics[f"eval_{self.metric}"]
 
-            logger.info(f"Best model with {self.metric} score {self.best_score} saved to {best_checkpoint_path}")
+        #     logger.info(f"Best model with {self.metric} score {self.best_score} saved to {best_checkpoint_path}")
 
         linecache.clearcache()
 
@@ -285,6 +288,7 @@ class BAS(ActiveSum):
         )
         bayesian_summarizer.init_sum()
 
+        logger.info(f"#FIND: Generating {n} summaries with MC dropout")
         generated_sums = bayesian_summarizer.generate_mc_summaries(
             dataloader,
             n=n)
