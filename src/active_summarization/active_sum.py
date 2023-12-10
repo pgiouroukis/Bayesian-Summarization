@@ -88,9 +88,9 @@ class ActiveSum:
             num_beams=self.beams,
             num_train_epochs=epochs,
             save_total_limit=self.save_limit,   # https://huggingface.co/docs/transformers/v4.35.2/en/main_classes/trainer#transformers.TrainingArguments.save_total_limit
-            load_best_model_at_end=True,        # https://huggingface.co/docs/transformers/v4.35.2/en/main_classes/trainer#transformers.TrainingArguments.load_best_model_at_end
-            evaluation_strategy="epoch",
-            save_strategy="epoch",              # Because of this, `save_steps` will not be used
+            load_best_model_at_end=False,       # https://huggingface.co/docs/transformers/v4.35.2/en/main_classes/trainer#transformers.TrainingArguments.load_best_model_at_end
+            evaluation_strategy="no",
+            save_strategy="no",
             save_steps=self.save_step,
             metric_for_best_model=self.metric,
             greater_is_better=True,
