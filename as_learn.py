@@ -64,11 +64,9 @@ def read_args():
 
 
 def main():
-    # CUDA for PyTorch
+    # CUDA or MPS for PyTorch
     st = time.time()
-    use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda:0" if use_cuda else "cpu")
-    # device = torch.device("mps")
+    device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'    
     torch.backends.cudnn.benchmark = True
 
     args, unknown = read_args()
