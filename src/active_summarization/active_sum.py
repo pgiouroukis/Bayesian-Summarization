@@ -75,7 +75,7 @@ class ActiveSum:
             logging_dir=f"{model_path}/logs",
             seed=self.seed,
             per_device_train_batch_size=self.batch_size,
-            per_device_eval_batch_size=self.batch_size,
+            per_device_eval_batch_size=self.batch_size_eval,
             overwrite_output_dir=True,
             max_val_samples=self.val_samples,
             max_test_samples=self.test_samples,

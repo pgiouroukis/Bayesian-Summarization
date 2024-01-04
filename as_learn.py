@@ -50,6 +50,7 @@ def read_args():
     parser.add_argument("--max_val_samples", type=int, help="")
     parser.add_argument("--max_test_samples", type=int, help="")
     parser.add_argument("--batch_size", type=int, default=8, help="")
+    parser.add_argument("--batch_size_eval", type=int, default=8, help="")
     parser.add_argument("--num_beams", type=int, default=3, help="")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="")
     parser.add_argument("--epochs", type=int, default=10, help="")
@@ -135,6 +136,7 @@ def main():
             val_samples=args.max_val_samples,
             test_samples=args.max_test_samples,
             batch_size=args.batch_size,
+            batch_size_eval=args.batch_size_eval,            
             beams=args.num_beams,
             lr=args.learning_rate,
             save_step=args.save_step,
