@@ -98,6 +98,7 @@ class ActiveSum:
             do_eval=True,
             predict_with_generate=True,
             do_predict=False,
+            generation_num_beams=self.beams
         )
 
         sum_trainer.init_sum()
