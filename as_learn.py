@@ -42,6 +42,9 @@ def read_args():
     parser.add_argument("--S", type=int, default=10, help="")
     parser.add_argument("--steps", type=int, default=10, help="")
     parser.add_argument("--acquisition", type=str, default="bayesian", choices=["bayesian", "random"], help="")
+    parser.add_argument("--preacquisition", type=str, choices=["idds"], help="")
+    parser.add_argument("--preacquisition_samples", type=int, help="")
+    parser.add_argument("--embeddings_model", type=str, help="")
 
     # Training args
     parser.add_argument("--init_model", type=str, help="")
@@ -142,6 +145,9 @@ def main():
             save_step=args.save_step,
             save_limit=args.save_limit,
             metric=args.metric_for_best_model,
+            embeddings_model=args.embeddings_model,
+            preacquisition=args.preacquisition,
+            preacquisition_samples=args.preacquisition_samples,
         )
     else:
         active_learner = active_sum.RandomActiveSum(

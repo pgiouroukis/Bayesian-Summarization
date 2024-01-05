@@ -15,7 +15,8 @@ from src.bayesian_summarization.bayesian import BayesianSummarizer
 from src.common.loaders import load_model, create_loader
 from src.bayesian_summarization.bleu import analyze_generation_bleuvar
 from src.summarization.sum_base import TrainerSummarizer
-
+from transformers import AutoModel, AutoTokenizer
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +332,10 @@ class BAS(ActiveSum):
         """
         logger.info(f"Learning step {step}")
         si_time = time.time()
-        sample, sample_idxs = self.data_sampler.sample_data(k=k)
+        if self.preacquisition is None:
+            sample, sample_idxs = self.data_sampler.sample_data(k=k)
+        elif self.preacquisition == "idds":
+            sample, sample_idxs = self.preacquisition_idds(k=k)
         mc_gens = self.mc_sample(sample_idxs, model_path, n)
         unc_scores = self.rank_data(mc_gens, n)
         selected_samples, selected_scores = self.select_data(unc_scores, s)
@@ -349,6 +353,63 @@ class BAS(ActiveSum):
         ei_time = time.time()
         logger.info(f"Finished learning step {step}: {ei_time - si_time} sec.")
 
+    def preacquisition_idds(self, k):
+        assert(self.preacquisition_samples >= k)
+        
+        # sample_idxs consists of two parts:
+        # 1) Randomly sampled data
+        # 2) Data that has been previously labeled
+        # We need both in order to run idds
+        _, sample_idxs = self.data_sampler.sample_data(self.preacquisition_samples)
+        labeled_idxs = self.data_sampler.get_removed_samples()
+        sample_idxs += labeled_idxs
+
+        # Compute the embeddings for the samples
+        with torch.no_grad():
+            model = AutoModel.from_pretrained(self.embeddings_model).to(self.device).eval()
+            tokenizer = AutoTokenizer.from_pretrained(self.embeddings_model)
+
+            dataloader = create_loader(self.data_sampler.dataset, batch_size=2, sample=sample_idxs)
+            embeddings = torch.empty((len(sample_idxs), 768), dtype=torch.float, device=self.device)
+            start = 0
+            logger.info(f"Generating {self.preacquisition_samples} embeddings")
+            for batch in tqdm(dataloader):
+                input = tokenizer(batch["document"], return_tensors="pt", padding="max_length", truncation=True).to(self.device)
+                output = model(**input)
+                # batch_embeddings = output.last_hidden_state.mean(dim=1) # use mean of embeddings
+                batch_embeddings = output.last_hidden_state[:, 0, :] # use [CLS] embedding
+                end = start + len(batch["id"])
+                embeddings[start:end].copy_(batch_embeddings, non_blocking=True)
+                start = end
+            del model, tokenizer
+        
+        # Run idds
+        selected_idxs = []
+        for i in range(k):    
+            similarities = torch.mm(embeddings, embeddings.T).detach().cpu().numpy()
+            np.fill_diagonal(similarities, 0)
+            
+            # "i" stores the index that points to the first labeled sample
+            i = self.preacquisition_samples - len(selected_idxs)
+            
+            # Compute the IDDS score for unlabeled samples
+            unlabeled_scores = similarities[:i, :i].mean(axis=1)
+            labeled_scores = similarities[:i, i:].mean(axis=1)
+            idds_scores = 0.66 * unlabeled_scores - 0.33 * labeled_scores
+
+            # Find the index of the unlabeled sample with the highest score
+            max_idds_score_pos = np.argmax(idds_scores)
+            selected_idxs.append(sample_idxs[max_idds_score_pos])
+
+            # We now consider the highest-score unlabeled sample of this iteration
+            # as labeled, in the context of this method (the consumer of
+            # this function may or may not label it in their AL experiment).
+            # Since we keep the labeled samples at the end of the arrays, we 
+            # swap the highest-score sample with the last unlabeled sample.
+            sample_idxs[max_idds_score_pos], sample_idxs[i-1] = sample_idxs[i-1], sample_idxs[max_idds_score_pos]
+            embeddings[[max_idds_score_pos, i-1]] = embeddings[[i-1, max_idds_score_pos]]
+
+        return self.data_sampler.dataset.select(selected_idxs), selected_idxs
 
 class RandomActiveSum(ActiveSum):
     """
@@ -466,3 +527,7 @@ class DataSampler:
     def get_available_samples(self):
         """Get the available samples excluding samples that have been removed"""
         return [si for si in range(0, self.num_samples - 1) if si not in self.removed]
+
+    def get_removed_samples(self):
+        """Get the removed samples"""
+        return self.removed
