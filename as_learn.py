@@ -50,6 +50,7 @@ def read_args():
     parser.add_argument("--init_model", type=str, help="")
     parser.add_argument("--max_source_length", type=int, default=256, help="")
     parser.add_argument("--max_summary_length", type=int, default=62, help="")
+    parser.add_argument("--training_validation", type=int, default=1, help="")
     parser.add_argument("--max_val_samples", type=int, help="")
     parser.add_argument("--max_test_samples", type=int, help="")
     parser.add_argument("--batch_size", type=int, default=8, help="")
@@ -76,6 +77,7 @@ def main():
     args, unknown = read_args()
 
     args.resume = bool(args.resume)
+    args.training_validation = bool(args.training_validation)
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -136,6 +138,7 @@ def main():
             init_model=args.init_model,
             source_len=args.max_source_length,
             target_len=args.max_summary_length,
+            training_validation=args.training_validation,
             val_samples=args.max_val_samples,
             test_samples=args.max_test_samples,
             batch_size=args.batch_size,
@@ -160,6 +163,7 @@ def main():
             init_model=args.init_model,
             source_len=args.max_source_length,
             target_len=args.max_summary_length,
+            training_validation=args.training_validation,
             val_samples=args.max_val_samples,
             test_samples=args.max_test_samples,
             batch_size=args.batch_size,

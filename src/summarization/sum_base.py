@@ -349,7 +349,11 @@ class TrainerSummarizer(Summarizer):
         return result
 
     def train(self):
-        es_callback = EarlyStoppingCallback(early_stopping_patience=3)
+        if self.training_args.evaluation_strategy in ["epoch", "steps"]:
+            callbacks = [EarlyStoppingCallback(early_stopping_patience=3)]
+        else:
+            callbacks = None
+
         # Initialize our Trainer
         self.trainer = Seq2SeqTrainer(
             model=self.model,
@@ -359,7 +363,7 @@ class TrainerSummarizer(Summarizer):
             tokenizer=self.tokenizer,
             data_collator=self.data_collator,
             compute_metrics=self.compute_metrics,
-            callbacks=[es_callback]
+            callbacks=callbacks
         )
 
         # Training
