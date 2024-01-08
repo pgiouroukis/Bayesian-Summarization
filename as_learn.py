@@ -167,6 +167,7 @@ def main():
             val_samples=args.max_val_samples,
             test_samples=args.max_test_samples,
             batch_size=args.batch_size,
+            batch_size_eval=args.batch_size_eval,
             beams=args.num_beams,
             lr=args.learning_rate,
             save_step=args.save_step,
