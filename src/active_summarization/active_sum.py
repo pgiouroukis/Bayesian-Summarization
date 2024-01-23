@@ -99,7 +99,8 @@ class ActiveSum:
             do_eval=True,
             predict_with_generate=True,
             do_predict=False,
-            generation_num_beams=self.beams
+            generation_num_beams=self.beams,
+            generation_max_length=self.target_len
         )
 
         sum_trainer.init_sum()
@@ -410,6 +411,87 @@ class BAS(ActiveSum):
             embeddings[[max_idds_score_pos, i-1]] = embeddings[[i-1, max_idds_score_pos]]
 
         return self.data_sampler.dataset.select(selected_idxs), selected_idxs
+
+class IDDS(ActiveSum):
+    def __init__(self, data_sampler, device, **kwargs):
+        super(IDDS, self).__init__(data_sampler, device, **kwargs)
+    
+    def learn(self, steps, model_path, labeled_path, k, s, eval_path, epochs):
+        """Learning strategy for Bayesian summarization"""
+        for i in range(steps):
+            self.learning_step(model_path, labeled_path, k, s, eval_path=eval_path, epochs=epochs, step=i)
+
+    def learning_step(self, model_path, labeled_path, k, s, eval_path, epochs, step=0):
+        logger.info(f"Learning step {step}")
+        si_time = time.time()
+        sample, sample_idxs = self.query_with_idds(num_return=s, num_sample=k)
+        self.data_sampler.remove_samples(sample_idxs)
+        self.write_samples(
+            sample,
+            sample_idxs, # This argument is not used in this case, since we have no scores
+            sample_idxs,
+            labeled_path)
+
+        self.train_step(labeled_path, model_path, eval_path, epochs)
+        ei_time = time.time()
+        logger.info(f"Finished learning step {step}: {ei_time - si_time} sec.")
+
+    def query_with_idds(self, num_return, num_sample):
+        assert(num_sample >= num_return)
+        
+        # sample_idxs consists of two parts:
+        # 1) Randomly sampled data
+        # 2) Data that has been previously labeled
+        # We need both in order to run idds
+        _, sample_idxs = self.data_sampler.sample_data(num_sample)
+        labeled_idxs = self.data_sampler.get_removed_samples()
+        sample_idxs += labeled_idxs
+
+        # Compute the embeddings for the samples
+        with torch.no_grad():
+            model = AutoModel.from_pretrained(self.embeddings_model).to(self.device).eval()
+            tokenizer = AutoTokenizer.from_pretrained(self.embeddings_model)
+
+            dataloader = create_loader(self.data_sampler.dataset, batch_size=2, sample=sample_idxs)
+            embeddings = torch.empty((len(sample_idxs), 768), dtype=torch.float, device=self.device)
+            start = 0
+            logger.info(f"Generating {num_sample} embeddings")
+            for batch in tqdm(dataloader):
+                input = tokenizer(batch["document"], return_tensors="pt", padding="max_length", truncation=True).to(self.device)
+                output = model(**input)
+                # batch_embeddings = output.last_hidden_state.mean(dim=1) # use mean of embeddings
+                batch_embeddings = output.last_hidden_state[:, 0, :] # use [CLS] embedding
+                end = start + len(batch["id"])
+                embeddings[start:end].copy_(batch_embeddings, non_blocking=True)
+                start = end
+            del model, tokenizer
+        
+        # Run idds
+        selected_idxs = []
+        for i in range(num_return):    
+            similarities = torch.mm(embeddings, embeddings.T).detach().cpu().numpy()
+            np.fill_diagonal(similarities, 0)
+            
+            # "i" stores the index that points to the first labeled sample
+            i = num_sample - len(selected_idxs)
+            
+            # Compute the IDDS score for unlabeled samples
+            unlabeled_scores = similarities[:i, :i].mean(axis=1)
+            labeled_scores = similarities[:i, i:].mean(axis=1)
+            idds_scores = 0.66 * unlabeled_scores - 0.33 * labeled_scores
+
+            # Find the index of the unlabeled sample with the highest score
+            max_idds_score_pos = np.argmax(idds_scores)
+            selected_idxs.append(sample_idxs[max_idds_score_pos])
+
+            # We now consider the highest-score unlabeled sample as labeled.
+            # Since we keep the labeled samples at the end of the arrays, we 
+            # swap the highest-score sample with the last unlabeled sample.
+            sample_idxs[max_idds_score_pos], sample_idxs[i-1] = sample_idxs[i-1], sample_idxs[max_idds_score_pos]
+            embeddings[[max_idds_score_pos, i-1]] = embeddings[[i-1, max_idds_score_pos]]
+
+        return self.data_sampler.dataset.select(selected_idxs), selected_idxs    
+
 
 class RandomActiveSum(ActiveSum):
     """

@@ -41,7 +41,7 @@ def read_args():
     parser.add_argument("--K", type=int, default=100, help="")
     parser.add_argument("--S", type=int, default=10, help="")
     parser.add_argument("--steps", type=int, default=10, help="")
-    parser.add_argument("--acquisition", type=str, default="bayesian", choices=["bayesian", "random"], help="")
+    parser.add_argument("--acquisition", type=str, default="bayesian", choices=["bayesian", "idds", "random"], help="")
     parser.add_argument("--preacquisition", type=str, choices=["idds"], help="")
     parser.add_argument("--preacquisition_samples", type=int, help="")
     parser.add_argument("--embeddings_model", type=str, help="")
@@ -152,6 +152,29 @@ def main():
             preacquisition=args.preacquisition,
             preacquisition_samples=args.preacquisition_samples,
         )
+    elif args.acquisition == "idds":
+        active_learner = active_sum.IDDS(
+            train_sampler,
+            device=device,
+            doc_col=args.text_column,
+            sum_col=args.summary_column,
+            seed=args.seed,
+            py_module=__name__,
+            init_model=args.init_model,
+            source_len=args.max_source_length,
+            target_len=args.max_summary_length,
+            training_validation=args.training_validation,
+            val_samples=args.max_val_samples,
+            test_samples=args.max_test_samples,
+            batch_size=args.batch_size,
+            batch_size_eval=args.batch_size_eval,            
+            beams=args.num_beams,
+            lr=args.learning_rate,
+            save_step=args.save_step,
+            save_limit=args.save_limit,
+            metric=args.metric_for_best_model,
+            embeddings_model=args.embeddings_model,
+        )
     else:
         active_learner = active_sum.RandomActiveSum(
             train_sampler,
@@ -195,6 +218,15 @@ def main():
             k=args.K, s=args.S, n=args.N,
             eval_path=args.validation_file,
             epochs=args.epochs)
+    elif args.acquisition == "idds":
+        logger.info("#FIND: running idds learning")
+        active_learner.learn(
+            steps=args.steps,
+            model_path=train_model,
+            labeled_path=data_path,
+            k=args.K, s=args.S,
+            eval_path=args.validation_file,
+            epochs=args.epochs)        
     else:
         active_learner.learn(
             steps=args.steps,
