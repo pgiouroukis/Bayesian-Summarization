@@ -134,7 +134,7 @@ class ActiveSum:
         #     if not os.path.exists(best_checkpoint_path):
         #         os.mkdir(best_checkpoint_path)
 
-        #     shutil.copy(os.path.join(model_path, "pytorch_model.bin"), best_checkpoint_path)
+        #     shutil.copy(os.path.join(model_path, "model.safetensors"), best_checkpoint_path)
         #     self.best_score = eval_metrics[f"eval_{self.metric}"]
 
         #     logger.info(f"Best model with {self.metric} score {self.best_score} saved to {best_checkpoint_path}")
