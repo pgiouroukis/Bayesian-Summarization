@@ -12,11 +12,10 @@ import numpy as np
 import torch
 
 from src.bayesian_summarization.bayesian import BayesianSummarizer
-from src.common.loaders import load_model, create_loader
+from src.common.loaders import create_loader
+from src.common.embeddings import compute_embeddings
 from src.bayesian_summarization.bleu import analyze_generation_bleuvar
 from src.summarization.sum_base import TrainerSummarizer
-from transformers import AutoModel, AutoTokenizer
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -365,24 +364,10 @@ class BAS(ActiveSum):
         labeled_idxs = self.data_sampler.get_removed_samples()
         sample_idxs += labeled_idxs
 
-        # Compute the embeddings for the samples
-        with torch.no_grad():
-            model = AutoModel.from_pretrained(self.embeddings_model).to(self.device).eval()
-            tokenizer = AutoTokenizer.from_pretrained(self.embeddings_model)
-
-            dataloader = create_loader(self.data_sampler.dataset, batch_size=2, sample=sample_idxs)
-            embeddings = torch.empty((len(sample_idxs), 768), dtype=torch.float, device=self.device)
-            start = 0
-            logger.info(f"Generating {self.preacquisition_samples} embeddings")
-            for batch in tqdm(dataloader):
-                input = tokenizer(batch["document"], return_tensors="pt", padding="max_length", truncation=True).to(self.device)
-                output = model(**input)
-                # batch_embeddings = output.last_hidden_state.mean(dim=1) # use mean of embeddings
-                batch_embeddings = output.last_hidden_state[:, 0, :] # use [CLS] embedding
-                end = start + len(batch["id"])
-                embeddings[start:end].copy_(batch_embeddings, non_blocking=True)
-                start = end
-            del model, tokenizer
+        # Get the embeddings of the samples
+        dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=sample_idxs)
+        logger.info(f"Generating {len(sample_idxs)} embeddings")
+        embeddings = compute_embeddings(dataloader, self.doc_col, self.device)
         
         # Run idds
         selected_idxs = []
@@ -447,24 +432,10 @@ class IDDS(ActiveSum):
         labeled_idxs = self.data_sampler.get_removed_samples()
         sample_idxs += labeled_idxs
 
-        # Compute the embeddings for the samples
-        with torch.no_grad():
-            model = AutoModel.from_pretrained(self.embeddings_model).to(self.device).eval()
-            tokenizer = AutoTokenizer.from_pretrained(self.embeddings_model)
-
-            dataloader = create_loader(self.data_sampler.dataset, batch_size=2, sample=sample_idxs)
-            embeddings = torch.empty((len(sample_idxs), 768), dtype=torch.float, device=self.device)
-            start = 0
-            logger.info(f"Generating {num_sample} embeddings")
-            for batch in tqdm(dataloader):
-                input = tokenizer(batch["document"], return_tensors="pt", padding="max_length", truncation=True).to(self.device)
-                output = model(**input)
-                # batch_embeddings = output.last_hidden_state.mean(dim=1) # use mean of embeddings
-                batch_embeddings = output.last_hidden_state[:, 0, :] # use [CLS] embedding
-                end = start + len(batch["id"])
-                embeddings[start:end].copy_(batch_embeddings, non_blocking=True)
-                start = end
-            del model, tokenizer
+        # Get the embeddings of the samples
+        dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=sample_idxs)
+        logger.info(f"Generating {len(sample_idxs)} embeddings")
+        embeddings = compute_embeddings(dataloader, self.doc_col, self.device)
         
         # Run idds
         selected_idxs = []
