@@ -357,12 +357,12 @@ class BAS(ActiveSum):
         assert(self.preacquisition_samples >= k)
         
         # sample_idxs consists of two parts:
-        # 1) Randomly sampled data
+        # 1) Randomly sampled data (unlabeled)
         # 2) Data that has been previously labeled
         # We need both in order to run idds
-        _, sample_idxs = self.data_sampler.sample_data(self.preacquisition_samples)
+        _, unlabaled_idxs = self.data_sampler.sample_data(self.preacquisition_samples)
         labeled_idxs = self.data_sampler.get_removed_samples()
-        sample_idxs += labeled_idxs
+        sample_idxs = unlabaled_idxs + labeled_idxs
 
         # Get the embeddings of the samples
         dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=sample_idxs)
@@ -425,12 +425,12 @@ class IDDS(ActiveSum):
         assert(num_sample >= num_return)
         
         # sample_idxs consists of two parts:
-        # 1) Randomly sampled data
+        # 1) Randomly sampled data (unlabeled)
         # 2) Data that has been previously labeled
         # We need both in order to run idds
-        _, sample_idxs = self.data_sampler.sample_data(num_sample)
+        _, unlabaled_idxs = self.data_sampler.sample_data(num_sample)
         labeled_idxs = self.data_sampler.get_removed_samples()
-        sample_idxs += labeled_idxs
+        sample_idxs = unlabaled_idxs + labeled_idxs
 
         # Get the embeddings of the samples
         dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=sample_idxs)
