@@ -16,6 +16,7 @@ from src.common.loaders import create_loader
 from src.common.embeddings import compute_embeddings
 from src.bayesian_summarization.bleu import analyze_generation_bleuvar
 from src.summarization.sum_base import TrainerSummarizer
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +302,7 @@ class BAS(ActiveSum):
         )
         bayesian_summarizer.init_sum()
 
-        logger.info(f"#FIND: Generating {n} summaries with MC dropout")
+        logger.info(f"Generating uncertainty scores for {len(sample_idxs)} samples using MC dropout with N={n}")
         generated_sums = bayesian_summarizer.generate_mc_summaries(
             dataloader,
             n=n)
@@ -391,30 +392,39 @@ class BAS(ActiveSum):
             embeddings = compute_embeddings(dataloader, self.doc_col, self.device)
         
         # Run idds
+        logger.info(f"Running preacquisition IDDS with {len(unlabeled_idxs)} unlabeled samples and {len(labeled_idxs)} labeled samples for K={k}")
         selected_idxs = []
-        for i in range(k):    
-            similarities = torch.mm(embeddings, embeddings.T).detach().cpu().numpy()
-            np.fill_diagonal(similarities, 0)
-            
+        for _ in tqdm(range(k)):
             # "i" stores the index that points to the first labeled sample
-            i = self.preacquisition_samples - len(selected_idxs)
-            
-            # Compute the IDDS score for unlabeled samples
-            unlabeled_scores = similarities[:i, :i].mean(axis=1)
-            labeled_scores = similarities[:i, i:].mean(axis=1)
-            idds_scores = 0.66 * unlabeled_scores - 0.33 * labeled_scores
+            i = len(unlabeled_idxs) - len(selected_idxs)
 
-            # Find the index of the unlabeled sample with the highest score
-            max_idds_score_pos = np.argmax(idds_scores)
-            selected_idxs.append(sample_idxs[max_idds_score_pos])
+            max_score = -1
+            max_score_pos = -1
+            # Loop through the embeddings of the unlabeled samples
+            for index, embedding in enumerate(embeddings[:i]):
+                # Compute the similarity of the given 
+                # embedding with all the other embeddings
+                similarity = torch.matmul(embeddings, embedding)
+                similarity[index] = 0
+
+                # Compute the IDDS score of the given embedding
+                unlabeled_score = similarity[:i].mean()
+                labeled_score = similarity[i:].mean()
+                idds_score = 0.66 * unlabeled_score - 0.33 * labeled_score
+
+                # Keep track of the highest score and its position
+                if idds_score > max_score:
+                    max_score = idds_score
+                    max_score_pos = index
+            selected_idxs.append(sample_idxs[max_score_pos])
 
             # We now consider the highest-score unlabeled sample of this iteration
             # as labeled, in the context of this method (the consumer of
             # this function may or may not label it in their AL experiment).
             # Since we keep the labeled samples at the end of the arrays, we 
             # swap the highest-score sample with the last unlabeled sample.
-            sample_idxs[max_idds_score_pos], sample_idxs[i-1] = sample_idxs[i-1], sample_idxs[max_idds_score_pos]
-            embeddings[[max_idds_score_pos, i-1]] = embeddings[[i-1, max_idds_score_pos]]
+            sample_idxs[max_score_pos], sample_idxs[i-1] = sample_idxs[i-1], sample_idxs[max_score_pos]
+            embeddings[[max_score_pos, i-1]] = embeddings[[i-1, max_score_pos]]
 
         return self.data_sampler.dataset.select(selected_idxs), selected_idxs
 
