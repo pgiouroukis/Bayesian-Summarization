@@ -265,10 +265,21 @@ class BAS(ActiveSum):
     ```
     """
     def __init__(self, data_sampler, device, **kwargs):
+        self.embeddings = None
         super(BAS, self).__init__(data_sampler, device, **kwargs)
 
     def learn(self, steps, model_path, labeled_path, k, s, n, eval_path, epochs):
         """Learning strategy for Bayesian summarization"""
+        
+        # If preacquisition_samples is -1, we generate embeddings 
+        # for all the samples once and store them in self.embeddings
+        if self.preacquisition_samples == -1:
+            all_idxs = self.data_sampler.get_available_samples() + self.data_sampler.get_removed_samples()
+            dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=all_idxs)
+            self.embeddings = torch.empty((len(dataloader.sampler), 768), dtype=torch.float, device=self.device)
+            logger.info(f"Generating {len(all_idxs)} embeddings")
+            self.embeddings = compute_embeddings(dataloader, self.doc_col, self.device)
+        
         for i in range(steps):
             self.learning_step(model_path, labeled_path, k, s, n, eval_path=eval_path, epochs=epochs, step=i)
 
@@ -354,20 +365,30 @@ class BAS(ActiveSum):
         logger.info(f"Finished learning step {step}: {ei_time - si_time} sec.")
 
     def preacquisition_idds(self, k):
-        assert(self.preacquisition_samples >= k)
-        
         # sample_idxs consists of two parts:
-        # 1) Randomly sampled data (unlabeled)
-        # 2) Data that has been previously labeled
+        #   1) Unlabeled data
+        #   2) Labeled data (from previous learning steps)
         # We need both in order to run idds
-        _, unlabaled_idxs = self.data_sampler.sample_data(self.preacquisition_samples)
-        labeled_idxs = self.data_sampler.get_removed_samples()
-        sample_idxs = unlabaled_idxs + labeled_idxs
+        # * If 'preacquisition_samples' is set to -1, 
+        #   all the unlabeled data will be used for Part 1
+        # * If 'preacquisition_samples' is positive,
+        #   randomly selected samples from the pool of
+        #   unlabeled data will be used for Part 1
 
-        # Get the embeddings of the samples
-        dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=sample_idxs)
-        logger.info(f"Generating {len(sample_idxs)} embeddings")
-        embeddings = compute_embeddings(dataloader, self.doc_col, self.device)
+        labeled_idxs = self.data_sampler.get_removed_samples()
+        if self.preacquisition_samples == -1:
+            labeled_embeddings = torch.index_select(self.embeddings, 0, torch.tensor(labeled_idxs).to(self.device))
+            unlabeled_idxs = self.data_sampler.get_available_samples()
+            unlabeled_embeddings = torch.index_select(self.embeddings, 0, torch.tensor(unlabeled_idxs).to(self.device))
+            embeddings = torch.cat((unlabeled_embeddings, labeled_embeddings), 0)
+            sample_idxs = unlabeled_idxs + labeled_idxs
+        else:
+            assert(self.preacquisition_samples >= k)
+            _, unlabeled_idxs = self.data_sampler.sample_data(self.preacquisition_samples)
+            sample_idxs = unlabeled_idxs + labeled_idxs
+            dataloader = create_loader(self.data_sampler.dataset, batch_size=40, sample=sample_idxs)
+            logger.info(f"Generating {len(sample_idxs)} embeddings")
+            embeddings = compute_embeddings(dataloader, self.doc_col, self.device)
         
         # Run idds
         selected_idxs = []
@@ -579,7 +600,7 @@ class DataSampler:
 
     def get_available_samples(self):
         """Get the available samples excluding samples that have been removed"""
-        return [si for si in range(0, self.num_samples - 1) if si not in self.removed]
+        return [si for si in range(0, self.num_samples) if si not in self.removed]
 
     def get_removed_samples(self):
         """Get the removed samples"""
