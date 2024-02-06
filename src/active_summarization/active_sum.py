@@ -16,6 +16,7 @@ from src.common.loaders import create_loader
 from src.common.embeddings import compute_embeddings
 from src.bayesian_summarization.bleu import analyze_generation_bleuvar
 from src.summarization.sum_base import TrainerSummarizer
+from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -398,24 +399,31 @@ class BAS(ActiveSum):
             # "i" stores the index that points to the first labeled sample
             i = len(unlabeled_idxs) - len(selected_idxs)
 
-            max_score = -1
-            max_score_pos = -1
-            # Loop through the embeddings of the unlabeled samples
-            for index, embedding in enumerate(embeddings[:i]):
-                # Compute the similarity of the given 
-                # embedding with all the other embeddings
-                similarity = torch.matmul(embeddings, embedding)
-                similarity[index] = 0
+            max_score = max_score_pos = -1
+            batch_size = 2500
+            tensor_dataset = TensorDataset(embeddings[:i])
+            tensor_dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=False)
+            for index, batch_embeddings in enumerate(tensor_dataloader):
+                # Compute the similarity of the current batch
+                # of embeddings with all the other embeddings
+                similarities = torch.mm(batch_embeddings[0], embeddings.T)
+                
+                # Fill the self-similarities with 0
+                similarities_offset_diagonal = similarities[:, index*batch_size:(index+1)*batch_size]
+                similarities_offset_diagonal.fill_diagonal_(0)
 
-                # Compute the IDDS score of the given embedding
-                unlabeled_score = similarity[:i].mean()
-                labeled_score = similarity[i:].mean()
-                idds_score = 0.66 * unlabeled_score - 0.33 * labeled_score
+                # Compute the IDDS score for the
+                # embeddings of the  current batch
+                unlabeled_scores = similarities[:, :i].mean(axis=1)
+                labeled_scores = similarities[:, i:].mean(axis=1)
+                idds_scores = 0.67 * unlabeled_scores - 0.33 * labeled_scores
 
                 # Keep track of the highest score and its position
-                if idds_score > max_score:
-                    max_score = idds_score
-                    max_score_pos = index
+                batch_max_score_pos = torch.argmax(idds_scores)
+                batch_max_score = idds_scores[batch_max_score_pos]
+                if batch_max_score > max_score:
+                    max_score = batch_max_score
+                    max_score_pos = batch_max_score_pos.item() + (index * batch_size)
             selected_idxs.append(sample_idxs[max_score_pos])
 
             # We now consider the highest-score unlabeled sample of this iteration
